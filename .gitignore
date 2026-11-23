@@ -1,0 +1,5 @@
+/quickcal
+*.test
+*.out
+.DS_Store
+/quickal
