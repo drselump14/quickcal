@@ -64,3 +64,7 @@ quickcal -x "gym mon 7pm /work"   # create the event directly
 
 Parser conventions: `12/5` is month/day, a bare `at 3` means 15:00, a time already past today
 moves to tomorrow, `next fri` is the next Friday after today.
+
+## License
+
+[MIT](LICENSE)
