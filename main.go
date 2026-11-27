@@ -310,6 +310,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case (m.aiState == "waiting" || m.aiState == "asking") && !m.confirm:
 				m.confirm = true
 				m.status = yellow.Render("aichat still parsing… enter again to add as shown")
+			case editOut != "":
+				if err := writeEdit(m.ev); err != nil {
+					m.status = red.Render("✗ " + err.Error())
+					return m, nil
+				}
+				return m, tea.Quit
 			default:
 				m.status = dim.Render("adding…")
 				return m, createCmd(m.ev)
@@ -425,6 +431,9 @@ func (m model) View() string {
 	W := m.cw()
 	entry := box("12").Width(W - 2).Render(m.input.View())
 	hint := fit(dim.Render(" try: 'Dentist next fri 3pm remind 30m' · 'Gym every mon 7pm /work' · ':: notes'"), W)
+	if editOut != "" {
+		hint = fit(magenta.Render(" ✎ editing an event: change any part, enter saves it"), W)
+	}
 
 	border := "4"
 	if len(m.conflictSet()) > 0 {
@@ -432,7 +441,7 @@ func (m model) View() string {
 	}
 	preview := box(border).Width(W - 2).Render(m.previewText(W))
 	cmdLine := ""
-	if m.ev != nil {
+	if m.ev != nil && editOut == "" { // editor mode saves nothing itself
 		cmdLine = dim.Width(W).Render("$ " + shellJoin(m.ev.KhalArgs()))
 	}
 	month := box("8").Render(monthGrid(m.focus, today()))
@@ -457,13 +466,17 @@ func (m model) View() string {
 	if m.ikhalID != "" {
 		ik = "close"
 	}
-	keys := yellow.Render("-- INSERT --") + dim.Render(" enter add · esc normal · ^z undo · ^t cal · ^a AI · ^o "+ik+" ikhal · ^l refresh · ^q quit")
+	enter := " enter add ·"
+	if editOut != "" {
+		enter = " enter save · ^q cancel ·"
+	}
+	keys := yellow.Render("-- INSERT --") + dim.Render(enter+" esc normal · ^z undo · ^t cal · ^a AI · ^o "+ik+" ikhal · ^l refresh · ^q quit")
 	if m.vi.mode == normalMode {
 		pend := ""
 		if len(m.vi.pending) > 0 || m.vi.count > 0 {
 			pend = " " + bold.Render(strings.TrimLeft(fmt.Sprint(m.vi.count), "0")+string(m.vi.pending))
 		}
-		keys = yellow.Render("-- NORMAL --") + pend + dim.Render(" enter add · i insert · u/^r undo/redo · dd clear · ^t cal · ^a AI · ^o "+ik+" ikhal · ^l refresh")
+		keys = yellow.Render("-- NORMAL --") + pend + dim.Render(enter+" i insert · u/^r undo/redo · dd clear · ^t cal · ^a AI · ^o "+ik+" ikhal · ^l refresh")
 	}
 	help := fit(" "+keys, W)
 	ui := lipgloss.JoinVertical(lipgloss.Left, entry, hint, body, " "+fit(m.status, W-1), help)
@@ -536,6 +549,7 @@ func (m model) previewText(W int) string {
 	}
 	if _, timed := ev.Start(); timed {
 		conf, missing := findConflicts(ev, m.dayCache)
+		conf = withoutEdited(conf)
 		switch {
 		case len(conf) > 0:
 			b.WriteString("\n" + red.Bold(true).Render(fmt.Sprintf("⚠ conflicts with %d event(s):", len(conf))) + "\n")
@@ -559,6 +573,7 @@ func (m model) conflictSet() map[string]bool {
 		return set
 	}
 	conf, _ := findConflicts(m.ev, m.dayCache)
+	conf = withoutEdited(conf)
 	for _, k := range conf {
 		set[k.Cal+"|"+k.Title+"|"+k.Start.String()] = true
 	}
@@ -649,6 +664,10 @@ func main() {
 		fitMode = true
 		os.Args = append(os.Args[:1], os.Args[2:]...)
 	}
+	if err := parseEditFlags(); err != nil {
+		fmt.Fprintln(os.Stderr, "quickcal:", err)
+		os.Exit(2)
+	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "-n", "--dry-run", "-x", "--exec":
@@ -668,11 +687,15 @@ func main() {
 			}
 			return
 		case "-h", "--help":
-			fmt.Println("usage: quickcal            TUI\n       quickcal --fit      TUI, resizing its kitty window to fit\n       quickcal -n TEXT    dry run (print khal command)\n       quickcal -x TEXT    create event")
+			fmt.Println("usage: quickcal            TUI\n       quickcal --edit TEXT --edit-out FILE\n                           edit TEXT; enter writes the parsed event as JSON to FILE (nothing is saved to khal)\n       quickcal --fit      TUI, resizing its kitty window to fit\n       quickcal -n TEXT    dry run (print khal command)\n       quickcal -x TEXT    create event")
 			return
 		}
 	}
-	if _, err := tea.NewProgram(newModel(), tea.WithAltScreen(), tea.WithReportFocus()).Run(); err != nil {
+	m := newModel()
+	if editText != "" {
+		m.startEdit(editText)
+	}
+	if _, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithReportFocus()).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

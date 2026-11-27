@@ -43,6 +43,10 @@ quickcal                 # TUI
 quickcal --fit           # TUI, resize own kitty window to fit
 quickcal -n "gym mon 7pm /work"   # print the khal command (dry run)
 quickcal -x "gym mon 7pm /work"   # create the event directly
+quickcal --edit "Lunch 2026-11-27 12:00-13:00 /work" --edit-out /path/out.json
+                         # editor mode for calendar apps (e.g. qkal): enter writes the
+                         # parsed event as JSON to the file and quits, nothing is saved;
+                         # ctrl+q cancels (no file)
 ```
 
 | Key | Action |
